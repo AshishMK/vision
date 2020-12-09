@@ -73,7 +73,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         )
         simpleExoPlayer.prepare(concatenatedSource)
         //binding.playerView.setUseController(false);
-        simpleExoPlayer.videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
+        simpleExoPlayer.videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT
         binding.playerView.player = simpleExoPlayer
         binding.playerView.keepScreenOn = true
         binding.playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT

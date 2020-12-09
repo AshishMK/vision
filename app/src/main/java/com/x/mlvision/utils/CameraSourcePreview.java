@@ -25,6 +25,7 @@ import android.view.SurfaceView;
 import android.view.ViewGroup;
 
 import com.google.android.gms.common.images.Size;
+import com.x.mlvision.scenes.scanScene.ScanActivity;
 
 import java.io.IOException;
 
@@ -33,7 +34,7 @@ public class CameraSourcePreview extends ViewGroup {
   private static final String TAG = "MIDemoApp:Preview";
 
   private final Context context;
-  private final SurfaceView surfaceView;
+  public final SurfaceView surfaceView;
   private boolean startRequested;
   private boolean surfaceAvailable;
   private CameraSource cameraSource;
@@ -50,10 +51,14 @@ public class CameraSourcePreview extends ViewGroup {
     surfaceView.getHolder().addCallback(new SurfaceCallback());
     addView(surfaceView);
   }
+  ScanActivity scanActivity;
+  public  void setScanActivity(ScanActivity scanActivity){
+    this.scanActivity = scanActivity;
+  }
 
   private void start(CameraSource cameraSource) throws IOException {
     this.cameraSource = cameraSource;
-
+    System.out.println("creater pcs hh"+(startRequested)+""+surfaceAvailable);
     if (this.cameraSource != null) {
       startRequested = true;
       startIfReady();
@@ -80,11 +85,12 @@ public class CameraSourcePreview extends ViewGroup {
   }
 
   private void startIfReady() throws IOException, SecurityException {
+    System.out.println("creater pcs "+(startRequested)+""+surfaceAvailable);
     if (startRequested && surfaceAvailable) {
    /*   if (PreferenceUtils.isCameraLiveViewportEnabled(context)) {
         cameraSource.start(surfaceView.getHolder());
       } else {*/
-        cameraSource.start();
+      cameraSource.start(surfaceView.getHolder());
      // }
       requestLayout();
 
@@ -112,6 +118,7 @@ public class CameraSourcePreview extends ViewGroup {
       surfaceAvailable = true;
       try {
         startIfReady();
+        //scanActivity.initMediaRecoder();
       } catch (IOException e) {
         Log.e(TAG, "Could not start camera source.", e);
       }

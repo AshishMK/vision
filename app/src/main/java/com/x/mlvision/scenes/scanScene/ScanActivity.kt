@@ -1,27 +1,32 @@
 package com.x.mlvision.scenes.scanScene
 
+import Jni.TrackUtils
+import VideoHandle.EpEditor
+import VideoHandle.OnEditorListener
+import android.app.ProgressDialog
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
-import android.media.MediaRecorder
+import android.media.*
 import android.media.projection.MediaProjection
-import android.media.projection.MediaProjectionManager
+import android.net.Uri
 import android.os.Bundle
 import android.os.CountDownTimer
 import android.os.Environment
-import android.util.DisplayMetrics
+import android.os.Handler
 import android.util.Log
+import android.util.Pair
+import android.view.ViewTreeObserver
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.x.mlvision.R
 import com.x.mlvision.scenes.resultScene.ResultActivity
-import com.x.mlvision.utils.CameraSource
-import com.x.mlvision.utils.CameraSourcePreview
-import com.x.mlvision.utils.GraphicOverlay
+import com.x.mlvision.utils.*
 import com.x.mlvision.utils.textdetector.TextRecognitionProcessor
 import kotlinx.android.synthetic.main.activity_scan.*
 import java.io.File
@@ -29,28 +34,59 @@ import java.io.IOException
 import java.util.*
 
 
-class ScanActivity : AppCompatActivity(), ActivityCompat.OnRequestPermissionsResultCallback{
+class ScanActivity : AppCompatActivity(), ActivityCompat.OnRequestPermissionsResultCallback {
     private var cameraSource: CameraSource? = null
+    lateinit var pb: ProgressDialog
     private var preview: CameraSourcePreview? = null
     private var graphicOverlay: GraphicOverlay? = null
     lateinit var rc: TextRecognitionProcessor
     lateinit var mMediaProjection: MediaProjection
-    lateinit var mVirtualDisplay: VirtualDisplay
+    var recorderStopped = false
+    var processFinished = false
     lateinit var mMediaRecorder: MediaRecorder
-    lateinit var mProjectionManager: MediaProjectionManager
-    var mDisplayMetrics = DisplayMetrics()
+    lateinit var imageProcessor: VisionImageProcessor
+    private var selectedSize = ScanActivity.SIZE_1024_768
+    private var imageMaxWidth = 0
+    private var hasPaused = false
+    var activityFinished = false
+    //finish activity when no data found for adhar
+    val finishingHandler = Handler()
+    val runnable = Runnable {
+        if (!activityFinished && !processFinished) {
+
+        startActivity(
+            Intent(
+                this@ScanActivity,
+                ResultActivity::class.java
+            ).putExtra("result", "No data found").putExtra("or", or).putExtra("url", getFileResource())
+        )
+        finish()
+    }
+    }
+
+    // Max height (portrait mode)
+    private var imageMaxHeight = 0
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_scan)
         supportActionBar!!.hide()
-        windowManager.defaultDisplay.getMetrics(mDisplayMetrics);
+        pb = ProgressDialog(this)
+        pb.setTitle("Processing...")
+        pb.setMessage("FFmpeg process to each frame")
+        root.viewTreeObserver.addOnGlobalLayoutListener(
+            object : ViewTreeObserver.OnGlobalLayoutListener {
+                override fun onGlobalLayout() {
+                    root.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                    imageMaxWidth = root.width
+                    imageMaxHeight = root.height
+                    // processBitmapFrame()
+                }
+            })
+        rc = TextRecognitionProcessor(this)
+        imageProcessor = rc
         mMediaRecorder = MediaRecorder()
-
-        mProjectionManager =
-            getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-
-
         preview = findViewById(R.id.preview_view)
+        preview!!.setScanActivity(this)
         if (preview == null) {
             Log.d(TAG, "Preview is null")
         }
@@ -61,34 +97,49 @@ class ScanActivity : AppCompatActivity(), ActivityCompat.OnRequestPermissionsRes
         }
 
         if (allPermissionsGranted()) {
-            createCameraSource()
+            //createCameraSource()
         } else {
             runtimePermissions
         }
-        startRecordingScreen()
+        //   startRecordingScreen()
 
     }
 
+
     public override fun onResume() {
         super.onResume()
-        Log.d(TAG, "onResume")
+        if (hasPaused) {
+            createCameraSource()
+            startCameraSource()
+            initMediaRecoder()
+            prepareRecording()
 
+            startCountDown()
+        }
+        Log.d(TAG, "onResume")
 
     }
 
     /** Stops the camera.  */
     override fun onPause() {
         super.onPause()
-        preview?.stop()
+        hasPaused = true
+        activityFinished = isFinishing
 
-        // Stop screen recording
-        //  hbRecorder.stopScreenRecording();
+    }
 
+    private fun initMediaRecoder() {
+        initRecording()
+        prepareRecording()
+
+        startCountDown()
     }
 
     public override fun onDestroy() {
         super.onDestroy()
         stopRecording()
+        //  mMediaRecorder.stop();
+        preview?.stop()
         if (cameraSource != null) {
             cameraSource?.release()
         }
@@ -108,10 +159,8 @@ class ScanActivity : AppCompatActivity(), ActivityCompat.OnRequestPermissionsRes
                 if (graphicOverlay == null) {
                     Log.d(TAG, "resume: graphOverlay is null")
                 }
-
                 preview!!.start(cameraSource, graphicOverlay)
             } catch (e: IOException) {
-                Log.e(TAG, "Unable to start camera source.", e)
                 cameraSource!!.release()
                 cameraSource = null
             }
@@ -176,9 +225,6 @@ class ScanActivity : AppCompatActivity(), ActivityCompat.OnRequestPermissionsRes
             cameraSource = CameraSource(this, graphicOverlay)
         }
         try {
-            rc = TextRecognitionProcessor(this)
-
-
             cameraSource!!.setMachineLearningFrameProcessor(rc)
 
         } catch (e: Exception) {
@@ -193,6 +239,9 @@ class ScanActivity : AppCompatActivity(), ActivityCompat.OnRequestPermissionsRes
     companion object {
         private const val TAG = "ScanActivity"
         private const val PERMISSION_REQUESTS = 1
+        private const val SIZE_SCREEN = "w:screen" // Match screen width
+        private const val SIZE_1024_768 = "w:1024" // ~1024*768 in a normal ratio
+        private const val SIZE_640_480 = "w:640" // ~640*480 in a normal ratio
         const val SCREEN_RECORD_REQUEST_CODE = 1001
         private fun isPermissionGranted(
             context: Context,
@@ -209,63 +258,36 @@ class ScanActivity : AppCompatActivity(), ActivityCompat.OnRequestPermissionsRes
         }
     }
 
-    fun startCountDown() {
+    var countDownStopped = false
+    private fun startCountDown() {
         object : CountDownTimer(10000, 1000) {
             override fun onTick(millisUntilFinished: Long) {
+                if (countDownStopped) {
+                    return
+                }
                 mTextField.setText("" + (millisUntilFinished / 1000) + " sec")
 
                 //here you can have your logic to set text to edittext
             }
 
             override fun onFinish() {
-                var text: String = ""
-                for (txt in rc.txt) {
-                    text = txt.text
+                if (countDownStopped) {
+                    return
                 }
+                countDownStopped = true
+
                 mTextField.setText("done!")
-                startActivity(
-                    Intent(
-                        this@ScanActivity,
-                        ResultActivity::class.java
-                    ).putExtra("result", text).putExtra("url",getFileResource())
-                )
-                finish()
+                if (!activityFinished) {
+                    pb.show()
+                    stopRecording()
+                    createFrameFromVideo()
+                }
             }
         }.start()
     }
 
-    private fun startRecordingScreen() {
-        val mediaProjectionManager =
-            getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        val permissionIntent =
-            mediaProjectionManager?.createScreenCaptureIntent()
-        startActivityForResult(permissionIntent, SCREEN_RECORD_REQUEST_CODE)
-    }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == SCREEN_RECORD_REQUEST_CODE) {
-            if (resultCode == RESULT_OK) {
-                //Start screen recording
-                mMediaProjection = mProjectionManager.getMediaProjection(resultCode, data!!);
-                //hbRecorder.startScreenRecording(data, resultCode, this);
-                prepareRecording()
-                createCameraSource()
-                startCameraSource()
-                startCountDown()
-
-            } else {
-                Toast.makeText(
-                    this,
-                    "Please provide screen recording permission",
-                    Toast.LENGTH_LONG
-                ).show()
-                finish()
-            }
-        }
-    }
-
-    private fun prepareRecording() {
+    private fun initRecording() {
 
         val directory: String =
             Environment.getExternalStorageDirectory().absolutePath + File.separator.toString() + "Recordings"
@@ -276,58 +298,281 @@ class ScanActivity : AppCompatActivity(), ActivityCompat.OnRequestPermissionsRes
 
         val filePath: String = getFileResource()
 
-
-        val width: Int = mDisplayMetrics.widthPixels
-        val height: Int = mDisplayMetrics.heightPixels
+        cameraSource!!.camera.unlock()
+        mMediaRecorder.setCamera(cameraSource!!.camera)
         mMediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC)
-        mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE)
-        mMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-        mMediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
-        mMediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB)
-        mMediaRecorder.setVideoEncodingBitRate(512 * 1000)
-        mMediaRecorder.setVideoFrameRate(30)
-        mMediaRecorder.setVideoSize(width, height)
+        mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.CAMERA);
+        val cpHigh: CamcorderProfile = CamcorderProfile
+            .get(CamcorderProfile.QUALITY_720P)
+        /*       mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE)
+               mMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+               mMediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
+               mMediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB)
+               mMediaRecorder.setVideoEncodingBitRate(512 * 1000)
+               mMediaRecorder.setVideoFrameRate(30)
+               mMediaRecorder.setVideoSize(width, height)*/
+        mMediaRecorder.setProfile(cpHigh);
+        mMediaRecorder.setOrientationHint(90)
         mMediaRecorder.setOutputFile(filePath)
+    }
+
+    private fun prepareRecording() {
+
+        mMediaRecorder.setPreviewDisplay(preview!!.surfaceView.holder.surface)//capture.holder.surface);
+
+        //  mMediaRecorder.setPreviewDisplay(preview_view.surfaceView.holder.surface);
         try {
             mMediaRecorder.prepare()
         } catch (e: java.lang.Exception) {
             e.printStackTrace()
             return
         }
-        mVirtualDisplay = getVirtualDisplay()
+        //  mVirtualDisplay = getVirtualDisplay()
         mMediaRecorder.start()
     }
 
     private fun stopRecording() {
-        if (mMediaRecorder != null) {
+        if (mMediaRecorder != null && !recorderStopped) {
+            recorderStopped = true
             mMediaRecorder.stop()
             mMediaRecorder.reset()
+            //mMediaRecorder = null
         }
-        /*     if (mVirtualDisplay != null) {
-                 mVirtualDisplay.release()
-             }*/
-        if (mMediaProjection != null) {
-            mMediaProjection.stop()
-        }
-        //prepareRecording()
+
     }
 
-    fun getFileResource(): String {
-        var file = File(Environment.getExternalStorageDirectory().toString() + "/"+getString(R.string.app_name))
+    private fun getFileResource(): String {
+        var file = File(
+            Environment.getExternalStorageDirectory()
+                .toString() + "/" + getString(R.string.app_name)
+        )
         file.mkdir()
         return File(file, "rc.mp4").absolutePath
     }
 
-    private fun getVirtualDisplay(): VirtualDisplay {
-        //screenDensity = mDisplayMetrics.densityDpi
-        val width: Int = mDisplayMetrics.widthPixels
-        val height: Int = mDisplayMetrics.heightPixels
-        return mMediaProjection.createVirtualDisplay(
-            this.javaClass.simpleName,
-            width, height, mDisplayMetrics.densityDpi,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            mMediaRecorder.surface, null /*Callbacks*/, null /*Handler*/
+    private fun getFileBitmapResource(): String {
+        var file = File(
+            Environment.getExternalStorageDirectory()
+                .toString() + "/" + getString(R.string.app_name)
         )
+        file.mkdir()
+        return File(file, "pic%03d.jpg").absolutePath
     }
 
+
+    fun createFrameFromVideo() {
+        var height = getVideoHeight(this, Uri.parse(getFileResource()))
+        var width = getVideoWidth(this, Uri.parse(getFileResource()))
+        EpEditor.video2pic(
+            getFileResource(),
+            getFileBitmapResource(),
+            height,
+            width,
+            2f,
+            object : OnEditorListener {
+                override fun onSuccess() {
+                    processBitmapFrame()
+                }
+
+                override fun onFailure() {
+                }
+
+                override fun onProgress(progress: Float) {
+                }
+
+            })
+
+    }
+
+    private fun getVideoHeight(context: Context?, uri: Uri): Int {
+
+        try {
+            val mediaExtractor = MediaExtractor()
+            mediaExtractor.setDataSource(uri.toString())
+            var videoExt = TrackUtils.selectVideoTrack(mediaExtractor)
+            if (videoExt == -1) {
+                videoExt = TrackUtils.selectAudioTrack(mediaExtractor)
+                if (videoExt == -1) {
+                    return 0
+                }
+            }
+            val mediaFormat = mediaExtractor.getTrackFormat(videoExt)
+            val res =
+                if (mediaFormat.containsKey(MediaFormat.KEY_HEIGHT)) mediaFormat.getInteger(
+                    MediaFormat.KEY_HEIGHT
+                ) else 0
+            mediaExtractor.release()
+            if (res == 0) {
+                getVideoHeightMediaRetriver(context, uri)
+            }
+            return res
+        } catch (e: java.lang.Exception) {
+        }
+        return getVideoHeightMediaRetriver(context, uri)
+    }
+
+    private fun getVideoHeightMediaRetriver(
+        context: Context?,
+        uri: Uri?
+    ): Int {
+        val retriever = MediaMetadataRetriever()
+        retriever.setDataSource(context, uri)
+        val time =
+            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+        val height = time.toInt()
+        retriever.release()
+        return height
+    }
+
+    private fun getVideoWidth(context: Context?, uri: Uri): Int {
+
+        try {
+            val mediaExtractor = MediaExtractor()
+            mediaExtractor.setDataSource(uri.toString())
+            var videoExt = TrackUtils.selectVideoTrack(mediaExtractor)
+            if (videoExt == -1) {
+                videoExt = TrackUtils.selectAudioTrack(mediaExtractor)
+                if (videoExt == -1) {
+                    return 0
+                }
+            }
+            val mediaFormat = mediaExtractor.getTrackFormat(videoExt)
+            val res =
+                if (mediaFormat.containsKey(MediaFormat.KEY_WIDTH)) mediaFormat.getInteger(
+                    MediaFormat.KEY_WIDTH
+                ) else 0
+            mediaExtractor.release()
+            if (res == 0) {
+                getVideoWidthMediaRetriver(context, uri)
+            }
+            return res
+        } catch (e: java.lang.Exception) {
+        }
+        return getVideoWidthMediaRetriver(context, uri)
+    }
+
+    private fun getVideoWidthMediaRetriver(
+        context: Context?,
+        uri: Uri?
+    ): Int {
+        val retriever = MediaMetadataRetriever()
+        retriever.setDataSource(context, uri)
+        val time =
+            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+        val height = time.toInt()
+        retriever.release()
+        return height
+    }
+
+    fun processBitmapFrame() {
+        var files = File(
+            Environment.getExternalStorageDirectory()
+                .toString() + "/" + getString(R.string.app_name)
+        ).listFiles()
+
+        println("ffmpeg su bitmap " + files.size)
+        for (f in files.reversed()) {
+            if (!f.name.contains(".jpg")) {
+                continue
+            }
+            //  imageProcessor!!.processBitmap(resizedBitmap, graphicOverlay)
+
+            val imageBitmap = BitmapUtils.getBitmapFromContentUri(contentResolver, Uri.fromFile(f))
+                ?: return
+            // Clear the overlay first
+            graphicOverlay!!.clear()
+            // Get the dimensions of the image view
+            val targetedSize = targetedWidthHeight
+            // Determine how much to scale down the image
+            val scaleFactor = kotlin.math.max(
+                imageBitmap.width.toFloat() / targetedSize.first.toFloat(),
+                imageBitmap.height.toFloat() / targetedSize.second.toFloat()
+            )
+            val resizedBitmap = Bitmap.createScaledBitmap(
+                imageBitmap,
+                (imageBitmap.width / scaleFactor).toInt(),
+                (imageBitmap.height / scaleFactor).toInt(),
+                true
+            )
+            if (imageProcessor != null) {
+                graphicOverlay!!.setImageSourceInfo(
+                    resizedBitmap.width, resizedBitmap.height, /* isFlipped= */false
+                )
+                imageProcessor!!.processBitmap(resizedBitmap, graphicOverlay)
+
+
+            }
+        }
+    }
+
+    public fun addText() {
+
+        finishingHandler.removeCallbacksAndMessages(null)
+        finishingHandler.postDelayed(runnable,1000*5)
+        if (processFinished) {
+            return
+        }
+        parseFrame()
+        if (text.contains("DOB")) {
+            pb.dismiss()
+            processFinished = true
+            startActivity(
+                Intent(
+                    this@ScanActivity,
+                    ResultActivity::class.java
+                ).putExtra("result", text).putExtra("or", or).putExtra("url", getFileResource())
+            )
+            finish()
+
+        }
+    }
+
+
+    var text = "No data found"
+    var or = ""
+    private fun parseFrame() {
+        text = "No data found"
+        or = ""
+        //for (txt in rc.txt) {
+        if (graphicOverlay!!.txt.size > 0) {
+            text = graphicOverlay!!.txt[graphicOverlay!!.txt.size - 1].text
+            or = graphicOverlay!!.txt[graphicOverlay!!.txt.size - 1].text
+        }
+
+        if (text.contains("DOB")) {
+            try {
+                val i = text.lastIndexOf("DOB", text.indexOf("DOB"))
+                val x = text.lastIndexOf("\n", i)
+                val t =
+                    if (i <= 1) "" else text.subSequence(text.lastIndexOf("\n", x - 1), x)
+                        .toString()
+                text = t + "\n" + text.subSequence(i, text.indexOf("\n", i)).toString()
+
+            } catch (e: Exception) {
+                text = "No data found"
+            }
+        }
+    }
+
+    private val targetedWidthHeight: Pair<Int, Int>
+        get() {
+            val targetWidth: Int
+            val targetHeight: Int
+            when (selectedSize) {
+                SIZE_SCREEN -> {
+                    targetWidth = imageMaxWidth
+                    targetHeight = imageMaxHeight
+                }
+                SIZE_640_480 -> {
+                    targetWidth = 480
+                    targetHeight = 640
+                }
+                SIZE_1024_768 -> {
+                    targetWidth = 768
+                    targetHeight = 1024
+                }
+                else -> throw IllegalStateException("Unknown size")
+            }
+            return Pair(targetWidth, targetHeight)
+        }
 }

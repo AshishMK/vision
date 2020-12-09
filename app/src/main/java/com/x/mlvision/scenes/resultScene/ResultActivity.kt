@@ -13,6 +13,7 @@ class ResultActivity : AppCompatActivity() {
         setContentView(R.layout.activity_result)
         supportActionBar!!.setDisplayHomeAsUpEnabled(true)
         result.setText(intent.getStringExtra("result"))
+        or.setText(intent.getStringExtra("or"))
     }
 
     override fun onSupportNavigateUp(): Boolean {

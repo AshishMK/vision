@@ -28,6 +28,7 @@ import android.widget.Toast
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskExecutors
 import com.google.mlkit.vision.common.InputImage
+import com.x.mlvision.scenes.scanScene.ScanActivity
 import java.nio.ByteBuffer
 import java.util.Timer
 import java.util.TimerTask
@@ -39,7 +40,7 @@ import java.util.TimerTask
  *
  * @param <T> The type of the detected feature.
  */
-abstract class VisionProcessorBase<T>(context: Context) : VisionImageProcessor {
+abstract class VisionProcessorBase<T>(val context: Context) : VisionImageProcessor {
 
   companion object {
     const val MANUAL_TESTING_LOG = "LogTagForTest"
@@ -199,6 +200,11 @@ abstract class VisionProcessorBase<T>(context: Context) : VisionImageProcessor {
         )
       )
       this@VisionProcessorBase.onSuccess(results, graphicOverlay)
+      println("fmpeg added ** "+(context is ScanActivity))
+      if(context is ScanActivity){
+        (context as ScanActivity).addText();
+
+      }
       graphicOverlay.postInvalidate()
     }
       .addOnFailureListener(executor) { e: Exception ->

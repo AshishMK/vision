@@ -31,7 +31,7 @@ import kotlin.math.min
  * Graphic instance for rendering TextBlock position, size, and ID within an associated graphic
  * overlay view.
  */
-class TextGraphic constructor(overlay: GraphicOverlay?, private val text: Text) :
+class TextGraphic constructor(overlay: GraphicOverlay?, public val text: Text) :
   GraphicOverlay.Graphic(overlay) {
 
   private val rectPaint: Paint = Paint()
@@ -88,14 +88,14 @@ class TextGraphic constructor(overlay: GraphicOverlay?, private val text: Text) 
         val lineHeight =
           TEXT_SIZE + 2 * STROKE_WIDTH
         val textWidth = textPaint.measureText(line.text)
-        /*  canvas.drawRect(
+       /*   canvas.drawRect(
             rect.left - STROKE_WIDTH,
             rect.top - lineHeight,
             rect.left + textWidth + 2 * STROKE_WIDTH,
             rect.top,
             labelPaint
-          )*/
-        /*      // Renders the text at the bottom of the box.
+          )
+              // Renders the text at the bottom of the box.
               canvas.drawText(
                 line.text,
                 rect.left,

@@ -23,6 +23,7 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
+import com.x.mlvision.scenes.scanScene.ScanActivity
 import com.x.mlvision.utils.GraphicOverlay
 import com.x.mlvision.utils.GraphicOverlay.Graphic
 import com.x.mlvision.utils.VisionProcessorBase
@@ -30,8 +31,9 @@ import java.util.*
 
 /** Processor for the text detector demo.  */
 class TextRecognitionProcessor(context: Context) : VisionProcessorBase<Text>(context) {
+
   private val textRecognizer: TextRecognizer = TextRecognition.getClient()
-  public val txt: ArrayList<Text> = ArrayList()
+
   override fun stop() {
     super.stop()
 
@@ -43,7 +45,9 @@ class TextRecognitionProcessor(context: Context) : VisionProcessorBase<Text>(con
   }
 
   override fun onSuccess(text: Text, graphicOverlay: GraphicOverlay) {
-    txt.add(text)
+    //txt.add(text)
+
+
     Log.d(TAG, "On-device Text detection successful")
     logExtrasForTesting(text)
     graphicOverlay.add(TextGraphic(graphicOverlay, text))

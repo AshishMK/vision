@@ -24,6 +24,9 @@ import android.view.View;
 
 
 import com.google.common.base.Preconditions;
+import com.google.mlkit.vision.text.Text;
+import com.x.mlvision.utils.textdetector.TextGraphic;
+
 
 import java.util.ArrayList;
 import java.util.List;
@@ -49,6 +52,7 @@ import java.util.List;
  */
 public class GraphicOverlay extends View {
   private final Object lock = new Object();
+  public  ArrayList<Text> txt = new ArrayList<Text>();
   private final List<Graphic> graphics = new ArrayList<>();
   // Matrix for transforming from image coordinates to overlay view coordinates.
   private final Matrix transformationMatrix = new Matrix();
@@ -148,6 +152,7 @@ public class GraphicOverlay extends View {
   /** Removes all graphics from the overlay. */
   public void clear() {
     synchronized (lock) {
+      txt.clear();
       graphics.clear();
     }
     postInvalidate();
@@ -156,6 +161,8 @@ public class GraphicOverlay extends View {
   /** Adds a graphic to the overlay. */
   public void add(Graphic graphic) {
     synchronized (lock) {
+      if(graphic instanceof TextGraphic)
+      txt.add(((TextGraphic)graphic).getText());
       graphics.add(graphic);
     }
   }
