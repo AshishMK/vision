@@ -81,7 +81,7 @@ public class CameraSource {
   /** Rotation of the device, and thus the associated preview images captured from the device. */
   private int rotationDegrees;
 
-  private Size previewSize;
+  public Size previewSize;
 
   private static final float REQUESTED_FPS = 30.0f;
   private static final boolean REQUESTED_AUTO_FOCUS = true;
@@ -128,6 +128,7 @@ public class CameraSource {
 
   /** Stops the camera and releases the resources of the camera and underlying detector. */
   public void release() {
+
     synchronized (processorLock) {
       stop();
       processingRunnable.release();
@@ -198,6 +199,7 @@ public class CameraSource {
    * resources of the underlying detector.
    */
   public synchronized void stop() {
+      System.out.println("kaal stop");
     processingRunnable.setActive(false);
     if (processingThread != null) {
       try {
@@ -330,6 +332,14 @@ public class CameraSource {
     camera.addCallbackBuffer(createPreviewBuffer(previewSize));
 
     return camera;
+  }
+
+  public void setCallback(){
+    camera.setPreviewCallbackWithBuffer(new CameraPreviewCallback());
+    camera.addCallbackBuffer(createPreviewBuffer(previewSize));
+    camera.addCallbackBuffer(createPreviewBuffer(previewSize));
+    camera.addCallbackBuffer(createPreviewBuffer(previewSize));
+    camera.addCallbackBuffer(createPreviewBuffer(previewSize));
   }
 
   /**
@@ -564,12 +574,15 @@ public class CameraSource {
   private class CameraPreviewCallback implements Camera.PreviewCallback {
     @Override
     public void onPreviewFrame(byte[] data, Camera camera) {
+        System.out.println("kaaal next frame");
       processingRunnable.setNextFrame(data, camera);
     }
   }
 
   public void setMachineLearningFrameProcessor(VisionImageProcessor processor) {
+    System.out.println("kaaal visi 575");
     synchronized (processorLock) {
+
       cleanScreen();
       if (frameProcessor != null) {
         frameProcessor.stop();
@@ -661,7 +674,7 @@ public class CameraSource {
     @Override
     public void run() {
       ByteBuffer data;
-
+        System.out.println("kaaal ");
       while (true) {
         synchronized (lock) {
           while (active && (pendingFrameData == null)) {
@@ -696,6 +709,7 @@ public class CameraSource {
 
         try {
           synchronized (processorLock) {
+            System.out.println("kaaal ");
             frameProcessor.processByteBuffer(
                 data,
                 new FrameMetadata.Builder()
@@ -706,6 +720,7 @@ public class CameraSource {
                 graphicOverlay);
           }
         } catch (Exception t) {
+            System.out.println("kaaal "+t.getLocalizedMessage());
           Log.e(TAG, "Exception thrown from receiver.", t);
         } finally {
           camera.addCallbackBuffer(data.array());

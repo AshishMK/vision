@@ -118,7 +118,7 @@ public class CameraSourcePreview extends ViewGroup {
       surfaceAvailable = true;
       try {
         startIfReady();
-        //scanActivity.initMediaRecoder();
+        scanActivity.initMediaRecoder();
       } catch (IOException e) {
         Log.e(TAG, "Could not start camera source.", e);
       }
